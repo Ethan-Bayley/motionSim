@@ -1,0 +1,1288 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>4613R Fused Localisation Simulator</title>
+    <style>
+        :root {
+            --bg: #16181d;
+            --bg2: #1f2229;
+            --bg3: #262a33;
+            --border: #363b47;
+            --text: #e8eaf0;
+            --text2: #9aa2b1;
+            --text3: #6b7280;
+            --ok-bg: #143d24;
+            --ok-fg: #5fd98a;
+            --warn-bg: #3d2e14;
+            --warn-fg: #e0b35f;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0 }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, Segoe UI, sans-serif;
+            font-size: 13px
+        }
+
+        #app {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            max-width: 1500px;
+            margin: 0 auto
+        }
+
+        /* top: square field on the left, the 3 status cards on the right at
+           matching height (the field is sized in JS to the column height). */
+        #top {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+            flex-wrap: wrap
+        }
+
+        #left { flex-shrink: 0 }
+
+        #left canvas {
+            display: block;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: crosshair;
+            background: #111
+        }
+
+        #side {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 340px;
+            flex: 1;
+        }
+
+        #side .card { flex: 1 1 auto }
+
+        /* bottom: every other card side-by-side, wrapping to a new row when
+           the window is too narrow (minimises vertical height). */
+        #bottom {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: flex-start
+        }
+
+        #bottom .card { flex: 1; min-width: 400px }
+
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            min-width: 250px;
+        }
+
+        .card h3 {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text2);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: .06em
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            gap: 6px
+        }
+
+        .row label { font-size: 12px; color: var(--text2); flex-shrink: 0 }
+        .row input[type=range] { flex: 1; min-width: 0 }
+        .row span { font-size: 12px; font-weight: 500; min-width: 40px; text-align: right }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600
+        }
+
+        .ok { background: var(--ok-bg); color: var(--ok-fg) }
+        .warn { background: var(--warn-bg); color: var(--warn-fg) }
+
+        button {
+            cursor: pointer;
+            padding: 4px 10px;
+            font-size: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg3);
+            color: var(--text);
+            width: 100%;
+            margin-top: 4px
+        }
+
+        button:hover { background: #30353f }
+        .btnrow { display: flex; gap: 6px }
+        .btnrow button { margin-top: 4px }
+
+        kbd {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 11px
+        }
+
+        .num {
+            width: 50px;
+            padding: 2px 4px;
+            font-size: 11px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg3);
+            color: var(--text)
+        }
+
+        .poserow {
+            display: grid;
+            grid-template-columns: 14px 80px 1fr 56px;
+            gap: 6px;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 12px
+        }
+
+        .dot { width: 10px; height: 10px; border-radius: 2px }
+        .smlbl { font-size: 11px; color: var(--text3) }
+        #status { font-size: 12px; color: var(--text2); margin-top: 4px }
+
+        table.cfg { border-collapse: collapse; width: 100% }
+        table.cfg td, table.cfg th { padding: 2px 3px; font-size: 11px; color: var(--text2); text-align: left }
+        table.cfg th { color: var(--text3); font-weight: 500 }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="top">
+            <div id="left"><canvas id="c" width="640" height="640" tabindex="0"></canvas></div>
+            <div id="side">
+                <div class="card">
+                    <h3>pose estimates (vs ground truth)</h3>
+                    <div class="poserow">
+                        <div class="dot" style="background:#e8eaf0"></div><b>ground truth</b><span id="p-truth">-</span><span></span>
+                    </div>
+                    <div class="poserow">
+                        <div class="dot" style="background:#4a82ff"></div>odom (drifting)<span id="p-odom">-</span><span id="e-odom" class="smlbl">-</span>
+                    </div>
+                    <div class="poserow">
+                        <div class="dot" style="background:#52c46a"></div>MCL<span id="p-mcl">-</span><span id="e-mcl" class="smlbl">-</span>
+                    </div>
+                    <div class="poserow">
+                        <div class="dot" style="background:#d65cd6"></div>vision (≥2 tags)<span id="p-vis">-</span><span id="e-vis" class="smlbl">-</span>
+                    </div>
+                    <div class="poserow">
+                        <div class="dot" style="background:#ff9d3b"></div><b>FUSED</b><span id="p-fused">-</span><span id="e-fused" class="smlbl">-</span>
+                    </div>
+                    <div class="row" style="margin-top:6px"><label>MCL confidence</label><span id="conf" class="badge warn">-</span></div>
+                    <div class="row"><label>traction</label><span id="slip" class="badge ok">ok</span></div>
+                    <div class="row"><label>contact (truth)</label><span id="contact" class="badge ok">clear</span></div>
+                    <div class="row"><label>encoder reset</label><span id="apply" class="badge ok">-</span></div>
+                </div>
+                <div class="card">
+                    <h3>omni odometry drift</h3>
+                    <div class="row"><label>fwd scale err %</label><input type="range" min="-10" max="10" step="0.5" value="2" id="d-fwd"><span id="d-fwd-v">2.0</span></div>
+                    <div class="row"><label>strafe scale err %</label><input type="range" min="-20" max="20" step="0.5" value="8" id="d-str"><span id="d-str-v">8.0</span></div>
+                    <div class="row"><label>heading drift °/in</label><input type="range" min="0" max="0.6" step="0.02" value="0.12" id="d-hed"><span id="d-hed-v">0.12</span></div>
+                    <div class="row"><label>random noise (in)</label><input type="range" min="0" max="0.3" step="0.01" value="0.04" id="d-noi"><span id="d-noi-v">0.04</span></div>
+                    <div class="row"><label>hi-conf encoder reset</label><input type="checkbox" id="ap-on" checked></div>
+                    <div class="row"><label>reset min conf</label><input type="range" min="0.3" max="0.95" step="0.05" value="0.65" id="ap-mc"><span id="ap-mc-v">0.65</span></div>
+                    <button id="sync-btn">⟲ re-seed odom to fused (chassis.setPose)</button>
+                </div>
+                <div class="card">
+                    <h3>rear goal aligner</h3>
+                    <div class="row"><label>aligner enabled</label><input type="checkbox" id="al-on" checked></div>
+                    <div class="row"><label>auto pose reset</label><input type="checkbox" id="al-auto" checked></div>
+                    <div class="row"><label>seat dist (in)</label><input type="range" min="6" max="14" step="0.25" value="9" id="al-st"><span id="al-st-v">9.0</span></div>
+                    <div class="row"><label>capture width (in)</label><input type="range" min="2" max="10" step="0.5" value="6" id="al-cw"><span id="al-cw-v">6.0</span></div>
+                    <div class="row"><label>aligner</label><span id="align" class="badge ok">idle</span></div>
+                    <button id="align-btn">⌖ goal-align pose reset (manual)</button>
+                </div>
+            </div>
+        </div>
+        <div id="bottom">
+            <div class="card">
+                <h3>mcl / fusion / vision</h3>
+                <div class="row"><label>particles</label><input type="range" min="50" max="800" step="50" value="400" id="m-np"><span id="m-np-v">400</span></div>
+                <div class="row"><label>dist σ (in)</label><input type="range" min="0.5" max="8" step="0.5" value="2" id="m-ds"><span id="m-ds-v">2.0</span></div>
+                <div class="row"><label>goal sense r (in)</label><input type="range" min="2.805" max="12" step="0.25" value="6" id="m-gs"><span id="m-gs-v">6.0</span></div>
+                <div class="row"><label>motion σ</label><input type="range" min="0" max="3" step="0.1" value="0.3" id="m-ms"><span id="m-ms-v">0.3</span></div>
+                <div class="row"><label>strafe σ ×</label><input type="range" min="1" max="5" step="0.25" value="2.5" id="m-ss"><span id="m-ss-v">2.5</span></div>
+                <div class="row"><label>fused = MCL (odom=input)</label><input type="checkbox" id="f-im" checked></div>
+                <div class="row"><label>fusion α (if not)</label><input type="range" min="0" max="0.5" step="0.01" value="0.15" id="f-al"><span id="f-al-v">0.15</span></div>
+                <div class="row"><label>fusion min conf</label><input type="range" min="0" max="0.9" step="0.05" value="0.3" id="f-mc"><span id="f-mc-v">0.30</span></div>
+                <div class="row"><label>bearing σ (°)</label><input type="range" min="1" max="12" step="0.5" value="4" id="v-bs"><span id="v-bs-v">4.0</span></div>
+                <div class="row"><label>bearing gate (°)</label><input type="range" min="5" max="60" step="1" value="25" id="v-bg"><span id="v-bg-v">25</span></div>
+                <div class="row"><label>bearing noise (°)</label><input type="range" min="0" max="5" step="0.25" value="1" id="v-bn"><span id="v-bn-v">1.0</span></div>
+                <div class="row"><label>imu drift °/min</label><input type="range" min="0" max="3" step="0.1" value="0.3" id="i-dr"><span id="i-dr-v">0.3</span></div>
+                <div class="row"><label>imu noise (°)</label><input type="range" min="0" max="2" step="0.1" value="0.3" id="i-no"><span id="i-no-v">0.3</span></div>
+                <div class="row"><label>imu σ (°)</label><input type="range" min="0.5" max="10" step="0.5" value="2" id="i-sg"><span id="i-sg-v">2.0</span></div>
+                <button id="reset-btn">↺ reset particles</button>
+            </div>
+            <div class="card">
+                <h3>controls</h3>
+                <p style="font-size:12px;line-height:1.9;color:var(--text2)"> <kbd>W</kbd><kbd>S</kbd> fwd/back &nbsp; <kbd>Q</kbd><kbd>E</kbd> strafe (omni) &nbsp; <kbd>A</kbd><kbd>D</kbd> turn<br> click field → place obstacle · click obstacle → remove </p>
+                <div class="row" style="margin-top:6px"><label>drive speed</label><input type="range" min="0.5" max="5" step="0.5" value="1.5" id="spd"><span id="spd-v">1.5</span></div>
+                <div id="status">click field to focus · save the field render as <b>field.png</b> next to this file for the photo background</div>
+            </div>
+            <div class="card">
+                <h3>path follower (drives on FUSED pose)</h3>
+                <div class="btnrow">
+                    <button id="p-edit">✎ edit</button>
+                    <button id="p-run">▶ run</button>
+                    <button id="p-clear">✕ clear</button>
+                </div>
+                <div class="row"><label>max speed (in/fr)</label><input type="range" min="0.5" max="4" step="0.1" value="1.8" id="p-sp"><span id="p-sp-v">1.8</span></div>
+                <div class="row"><label>lookahead (in)</label><input type="range" min="4" max="30" step="1" value="11" id="p-la"><span id="p-la-v">11</span></div>
+                <div class="row"><label>kP linear</label><input type="range" min="0.02" max="0.5" step="0.01" value="0.12" id="p-kl"><span id="p-kl-v">0.12</span></div>
+                <div class="row"><label>kP angular</label><input type="range" min="0.01" max="0.3" step="0.01" value="0.08" id="p-ka"><span id="p-ka-v">0.08</span></div>
+                <div class="row"><label>kD angular</label><input type="range" min="0" max="1" step="0.05" value="0.25" id="p-kd"><span id="p-kd-v">0.25</span></div>
+                <div class="row"><label>slew (in/fr²)</label><input type="range" min="0.01" max="0.5" step="0.01" value="0.08" id="p-sl"><span id="p-sl-v">0.08</span></div>
+                <div id="wp-cfg" style="margin-top:4px"></div>
+                <p style="font-size:10px;color:var(--text3);margin-top:4px">edit: click empty = add point · drag point = move · drag cyan handle = heading/curve · dbl-click = delete · <b>rev</b> = drive that leg backwards</p>
+            </div>
+            <div class="card">
+                <h3>opponent robots</h3>
+                <div id="npc-cfg"></div>
+                <button id="npc-add">＋ add opponent robot</button>
+                <p style="font-size:10px;color:var(--text3);margin-top:4px">they roam the field and act as UNKNOWN obstacles — distance beams hitting them are rejected, they occlude tags, and they physically block your robot.</p>
+            </div>
+            <div class="card">
+                <h3>distance sensors</h3>
+                <div id="sensor-cfg"></div>
+                <p style="font-size:10px;color:var(--text3);margin-top:4px"> <span style="color:#ffd24a">━━</span> wall/goal hit (accepted) &nbsp; <span style="color:#ff5050">━━</span> unknown object / jump (rejected) · angle 0=fwd 90=right </p>
+            </div>
+            <div class="card">
+                <h3>cameras (bearing-only apriltag)</h3>
+                <div id="cam-cfg"></div>
+                <p style="font-size:10px;color:var(--text3);margin-top:4px"> <span style="color:#41d6d6">━━</span> tag accepted &nbsp; <span style="color:#ff5050">━━</span> occluded / gated (rejected) </p>
+            </div>
+            <div class="card">
+                <h3>apriltags (world pos)</h3>
+                <div id="tag-cfg"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        'use strict';
+        // ═════════ field / canvas ═════════
+        const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+        const SZ = 640, FM = -72, FX = 72, FIELD_IN = 144, SC = SZ / FIELD_IN;
+        const MAX_RANGE = 130, TURN = 3.0;
+        function wrapDeg(d) { while (d > 180) d -= 360; while (d <= -180) d += 360; return d; }
+        function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+        function randn() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+        function toC(x, y) { return [(x - FM) * SC, SZ - (y - FM) * SC]; }
+        function fromC(cx, cy) { return [cx / SC + FM, (SZ - cy) / SC + FM]; }
+        const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+        // Field background photo — save the rendered field image as field.png beside this file.
+        const fieldImg = new Image(); let fieldImgOk = false;
+        fieldImg.onload = () => { fieldImgOk = true; };
+        fieldImg.onerror = () => { fieldImgOk = false; };
+        fieldImg.src = 'field.png';
+
+        // ═════════ map (matches LocoConfig / Zone.cpp) ═════════
+        let ROBOT_W = 14, ROBOT_H = 17;
+        let GOAL_COL_R = 5.61 / 2, GOAL_SENSE_R = 6.0;
+        const GOALS = [[-23.54, 47.10], [23.55, 47.10], [-47.09, 23.55], [47.10, 23.55], [0, 0],
+        [-47.09, -23.54], [47.10, -23.54], [-23.54, -47.09], [23.55, -47.09]];
+        const WALLS = [{ x1: -72, y1: -72, x2: 72, y2: -72 }, { x1: 72, y1: -72, x2: 72, y2: 72 },
+        { x1: 72, y1: 72, x2: -72, y2: 72 }, { x1: -72, y1: 72, x2: -72, y2: -72 }];
+
+        // ═════════ configurable hardware ═════════
+        let sensorConfigs = [
+            { label: 'front', angle_deg: 0, x_offset: 0, y_offset: 8, enabled: true },
+            { label: 'right', angle_deg: 90, x_offset: 8, y_offset: 0, enabled: true },
+            { label: 'rear', angle_deg: 180, x_offset: 0, y_offset: -8, enabled: true },
+            { label: 'left', angle_deg: 270, x_offset: -8, y_offset: 0, enabled: true },
+        ];
+        let cameras = [
+            { label: 'front', mount: 0, fov: 60, range: 96, x: 0, y: 6, enabled: true },
+            { label: 'rear', mount: 180, fov: 60, range: 96, x: 0, y: -6, enabled: true },
+        ];
+        let TAGS = [
+            { id: 0, x: 0.00, y: 0.00, enabled: true },
+            { id: 1, x: -47.09, y: 23.55, enabled: true }, { id: 1, x: 47.10, y: -23.54, enabled: true },
+            { id: 2, x: 47.10, y: 23.55, enabled: true }, { id: 2, x: -47.09, y: -23.54, enabled: true },
+            { id: 3, x: 23.55, y: 47.10, enabled: true }, { id: 3, x: -23.54, y: -47.09, enabled: true },
+            { id: 4, x: -23.54, y: 47.10, enabled: true }, { id: 4, x: 23.55, y: -47.09, enabled: true },
+        ];
+
+        // ═════════ tunables ═════════
+        let NPART = 400, DIST_SIGMA = 2.0, MOTION_SIGMA = 0.3, STRAFE_MULT = 2.5, SPEED = 1.5;
+        // ESS-gated resampling: weights persist across cycles; only resample
+        // when effective sample size 1/Σwᵢ² drops below ESS_RATIO·N (preserves
+        // particle diversity instead of resampling every frame).
+        let ESS_RATIO = 0.5;
+        let FUSE_ALPHA = 0.15, FUSE_MINCONF = 0.30;
+        // fused IS the MCL estimate (odom = motion model only). Full snap on
+        // valid+confident cycles; freezes (dead-reckons on odom) when blind.
+        let fusedIsMcl = true;
+        // High-confidence encoder reset (chassis.setPose write-back).
+        let autoApply = true, APPLY_MINCONF = 0.65, APPLY_PERIOD = 60, applyTimer = 60, applyFlash = 0;
+        let BEAR_SIGMA = 4.0, BEAR_GATE = 25, BEAR_NOISE = 1.0;
+        let drift = { fwd: 2.0, strafe: 8.0, head: 0.12, noise: 0.04 };
+        let imuCfg = { driftPerMin: 0.3, noise: 0.3, sigma: 2.0 };
+        let imuBias = 0, lastImu = 0;
+        let aligner = { enabled: true, auto: true, seat: 9.0, capture: 6.0 };
+        let alignGoal = null, alignHold = 0, alignTimer = 0;
+        // Aligned-HOLD: while seated on a goal the pose is LOCKED — computed
+        // each frame from the goal centre + IMU heading at 100% confidence, and
+        // backward motion (which only keeps the aligner pressed in) is discarded
+        // so it can never push the estimate into the goal. Releases on forward.
+        let alignActive = false, alignGoalPos = null;
+        function alignerGoalDist() { return aligner.seat + GOAL_COL_R; }
+        let EST_JUMP = 24, EST_JUMP_HOLD = 30; // isotropic safety cap (+ vision gate)
+        // Kinematic plausibility gate: the MCL estimate's motion since the last
+        // accepted one is compared to the odom-commanded motion; lateral
+        // discrepancy gets a much tighter budget than forward (the base barely
+        // strafes), so sensor glitches that try to shove the pose sideways are
+        // rejected. Stands down during a detected slip.
+        let KIN_GATE = true, KIN_FWD_BASE = 2.5, KIN_FWD_RATE = 0.6,
+            KIN_STR_BASE = 1.0, KIN_STR_RATE = 0.30, KIN_HOLD = 20;
+        let accDX = 0, accDY = 0, odomAccPrev = null; // odom world disp since last accept
+        let prevMclEst = null, mclJump = 0, mclValid = true;
+        let prevVisEst = null, visJump = 0, visValid = true;
+        let wFast = 1, wSlow = 1, slipTimer = 0, contactNow = false;
+        const SLIP_RATIO = 0.15, SLIP_MIN_TRANS = 0.2, RECOVERY_FRAC = 0.3;
+        function robotR() { return Math.max(ROBOT_W, ROBOT_H) / 2 * 0.9; }
+
+        // ═════════ state ═════════
+        // theta = compass heading, 0 = +y (up), CLOCKWISE positive.
+        let truth = { x: 0, y: -40, theta: 0 };
+        let odom = { x: 0, y: -40, theta: 0 };
+        let corr = { x: 0, y: 0, theta: 0 };
+        let fused = { x: 0, y: -40, theta: 0 };
+        let visEst = null;
+        let particles = [], estimate = { x: 0, y: -40, theta: 0, conf: 0 };
+        let obstacles = [], keys = {};
+        let sensorStatus = sensorConfigs.map(() => 'none');
+        let tagDetections = [];
+        let prevDist = sensorConfigs.map(() => -1);
+
+        // ═════════ opponent robots (dynamic obstacles) ═════════
+        // Each roams the field and is UNKNOWN to the map — distance beams that
+        // hit one are rejected outliers, it occludes tags, and it blocks truth.
+        let npcs = [];
+        function addNpc() {
+            npcs.push({ enabled: true, x: (Math.random() * 80 - 40), y: (Math.random() * 80 - 40),
+                theta: Math.random() * 360 - 180, speed: 0.9, r: 7, turn: 3 });
+            buildNpcUI();
+        }
+        // Circle list the sensors/collision treat as unknown obstacles.
+        function obsAll() {
+            const a = obstacles.slice();
+            for (const n of npcs) if (n.enabled) a.push({ x: n.x, y: n.y, r: n.r });
+            return a;
+        }
+        function npcStep() {
+            for (const n of npcs) {
+                if (!n.enabled) continue;
+                n.theta = wrapDeg(n.theta + randn() * n.turn);
+                const tr = n.theta * D2R;
+                let nx = n.x + n.speed * Math.sin(tr), ny = n.y + n.speed * Math.cos(tr);
+                let hit = false;
+                if (nx < FM + n.r || nx > FX - n.r) { nx = clamp(nx, FM + n.r, FX - n.r); hit = true; }
+                if (ny < FM + n.r || ny > FX - n.r) { ny = clamp(ny, FM + n.r, FX - n.r); hit = true; }
+                for (const [gx, gy] of GOALS) {
+                    const dx = nx - gx, dy = ny - gy, d = Math.hypot(dx, dy), minD = GOAL_COL_R + n.r;
+                    if (d < minD) { const ux = d < 1e-6 ? 1 : dx / d, uy = d < 1e-6 ? 0 : dy / d; nx = gx + ux * minD; ny = gy + uy * minD; hit = true; }
+                }
+                n.x = nx; n.y = ny;
+                if (hit) n.theta = wrapDeg(n.theta + 90 + randn() * 40); // turn away on contact
+            }
+        }
+
+        // ═════════ raycast ═════════
+        function rayVsSeg(ox, oy, dx, dy, s) {
+            const ex = s.x2 - s.x1, ey = s.y2 - s.y1, det = dx * (-ey) - dy * (-ex);
+            if (Math.abs(det) < 1e-10) return -1;
+            const fx = s.x1 - ox, fy = s.y1 - oy;
+            const t = (fx * (-ey) - fy * (-ex)) / det, u = (dx * fy - dy * fx) / det;
+            return (t >= 0 && u >= 0 && u <= 1) ? t : -1;
+        }
+        function rayVsCirc(ox, oy, dx, dy, c) {
+            const fx = ox - c.cx, fy = oy - c.cy;
+            const a = dx * dx + dy * dy, b = 2 * (fx * dx + fy * dy), cc = fx * fx + fy * fy - c.r * c.r;
+            const disc = b * b - 4 * a * cc; if (disc < 0) return -1;
+            const sq = Math.sqrt(disc), t1 = (-b - sq) / (2 * a), t2 = (-b + sq) / (2 * a);
+            return t1 >= 0 ? t1 : t2 >= 0 ? t2 : -1;
+        }
+        // Full world (walls + goals + obstacles + opponents) — the real beam.
+        function rayCastDetailed(ox, oy, dx, dy) {
+            const len = Math.hypot(dx, dy); if (len < 1e-10) return { dist: MAX_RANGE, hitType: 'none' };
+            const nx = dx / len, ny = dy / len; let best = MAX_RANGE, hitType = 'none';
+            for (const s of WALLS) { const t = rayVsSeg(ox, oy, nx, ny, s); if (t >= 0 && t < best) { best = t; hitType = 'wall'; } }
+            for (const [gx, gy] of GOALS) { const t = rayVsCirc(ox, oy, nx, ny, { cx: gx, cy: gy, r: GOAL_COL_R }); if (t >= 0 && t < best) { best = t; hitType = 'goal'; } }
+            for (const o of obsAll()) { const t = rayVsCirc(ox, oy, nx, ny, { cx: o.x, cy: o.y, r: o.r }); if (t >= 0 && t < best) { best = t; hitType = 'obstacle'; } }
+            return { dist: best, hitType };
+        }
+        function sensorRay(pose, cfg) {
+            const t = pose.theta * D2R;
+            const ox = pose.x + cfg.x_offset * Math.cos(t) + cfg.y_offset * Math.sin(t);
+            const oy = pose.y - cfg.x_offset * Math.sin(t) + cfg.y_offset * Math.cos(t);
+            const a = (pose.theta + cfg.angle_deg) * D2R;
+            return { ox, oy, dx: Math.sin(a), dy: Math.cos(a) };
+        }
+        // Map-only expected distance (walls + goals; obstacles unknown to map).
+        function particleExpectedDist(pose, cfg) {
+            const { ox, oy, dx, dy } = sensorRay(pose, cfg);
+            let best = MAX_RANGE;
+            for (const s of WALLS) { const t = rayVsSeg(ox, oy, dx, dy, s); if (t >= 0 && t < best) best = t; }
+            for (const [gx, gy] of GOALS) { const t = rayVsCirc(ox, oy, dx, dy, { cx: gx, cy: gy, r: GOAL_SENSE_R }); if (t >= 0 && t < best) best = t; }
+            return best;
+        }
+
+        // ═════════ vision (bearing-only) ═════════
+        function camWorldPos(pose, cam) {
+            const t = pose.theta * D2R;
+            return [pose.x + cam.x * Math.cos(t) + cam.y * Math.sin(t),
+            pose.y - cam.x * Math.sin(t) + cam.y * Math.cos(t)];
+        }
+        function expectedBearing(pose, cam, tag) {
+            const [cx, cy] = camWorldPos(pose, cam);
+            const world = Math.atan2(tag.x - cx, tag.y - cy) * R2D;
+            return wrapDeg(world - (pose.theta + cam.mount));
+        }
+        function simulateDetections(gatePose) {
+            const out = [];
+            const occ = obsAll();
+            for (const cam of cameras) {
+                if (!cam.enabled) continue;
+                const [cx, cy] = camWorldPos(truth, cam);
+                for (const tag of TAGS) {
+                    if (!tag.enabled) continue;
+                    const dx = tag.x - cx, dy = tag.y - cy, dist = Math.hypot(dx, dy);
+                    if (dist > cam.range) continue;
+                    const rel = expectedBearing(truth, cam, tag);
+                    if (Math.abs(rel) > cam.fov / 2) continue;
+                    let occluded = false;
+                    const nx = dx / dist, ny = dy / dist;
+                    for (const [gx, gy] of GOALS) {
+                        if (Math.hypot(gx - tag.x, gy - tag.y) < 0.5) continue;
+                        const t = rayVsCirc(cx, cy, nx, ny, { cx: gx, cy: gy, r: GOAL_COL_R });
+                        if (t >= 0 && t < dist - GOAL_COL_R - 0.5) { occluded = true; break; }
+                    }
+                    if (!occluded) for (const o of occ) { const t = rayVsCirc(cx, cy, nx, ny, { cx: o.x, cy: o.y, r: o.r }); if (t >= 0 && t < dist - 1) { occluded = true; break; } }
+                    const meas = rel + randn() * BEAR_NOISE;
+                    const cands = TAGS.filter(t => t.enabled && t.id === tag.id);
+                    let assoc = cands[0], bestR = 1e9;
+                    for (const c of cands) {
+                        const r = Math.abs(wrapDeg(meas - expectedBearing(gatePose, cam, c)));
+                        if (r < bestR) { bestR = r; assoc = c; }
+                    }
+                    let status = 'accepted';
+                    if (occluded) status = 'occluded';
+                    else if (bestR > BEAR_GATE) status = 'gated';
+                    out.push({ cam, tag, cands, assoc, meas, status, camX: cx, camY: cy, dist });
+                }
+            }
+            return out;
+        }
+        function triangulate(dets) {
+            const acc = dets.filter(d => d.status === 'accepted');
+            if (acc.length < 2) return null;
+            let m00 = 0, m01 = 0, m11 = 0, b0 = 0, b1 = 0;
+            for (const d of acc) {
+                const phi = (fused.theta + d.cam.mount + d.meas) * D2R;
+                const ux = -Math.sin(phi), uy = -Math.cos(phi);
+                const a00 = 1 - ux * ux, a01 = -ux * uy, a11 = 1 - uy * uy;
+                m00 += a00; m01 += a01; m11 += a11;
+                b0 += a00 * d.assoc.x + a01 * d.assoc.y;
+                b1 += a01 * d.assoc.x + a11 * d.assoc.y;
+            }
+            const det = m00 * m11 - m01 * m01;
+            if (Math.abs(det) < 1e-6) return null;
+            return { x: (b0 * m11 - b1 * m01) / det, y: (m00 * b1 - m01 * b0) / det, theta: fused.theta };
+        }
+
+        // ═════════ valid-pose constraint ═════════
+        function constrainPose(p) {
+            const R = robotR();
+            p.x = clamp(p.x, FM + R, FX - R);
+            p.y = clamp(p.y, FM + R, FX - R);
+            for (const [gx, gy] of GOALS) {
+                const dx = p.x - gx, dy = p.y - gy, d = Math.hypot(dx, dy), minD = GOAL_COL_R + R;
+                if (d < minD) {
+                    const ux = d < 1e-6 ? 1 : dx / d, uy = d < 1e-6 ? 0 : dy / d;
+                    p.x = gx + ux * minD; p.y = gy + uy * minD;
+                }
+            }
+            return p;
+        }
+
+        // ═════════ particle filter ═════════
+        function gaussian(e, s) { return Math.exp(-0.5 * (e / s) ** 2); }
+        function randomParticle() {
+            return constrainPose({
+                x: Math.random() * FIELD_IN + FM, y: Math.random() * FIELD_IN + FM,
+                theta: wrapDeg(lastImu + randn() * 8), weight: 1 / NPART
+            });
+        }
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < NPART; i++)
+                particles.push({ x: odom.x + randn() * 4, y: odom.y + randn() * 4, theta: wrapDeg(odom.theta + randn() * 5), weight: 1 / NPART });
+            estimate = { x: odom.x, y: odom.y, theta: odom.theta, conf: 0 };
+            prevDist = sensorConfigs.map(() => -1);
+            prevMclEst = null; mclJump = 0; mclValid = true;
+            prevVisEst = null; visJump = 0; visValid = true;
+            accDX = accDY = 0; odomAccPrev = null;
+        }
+        function normalise(ps) {
+            let t = ps.reduce((s, p) => s + p.weight, 0);
+            if (t < 1e-30) { const u = 1 / ps.length; ps.forEach(p => p.weight = u); return; }
+            ps.forEach(p => p.weight /= t);
+        }
+        function resample(ps) {
+            const N = ps.length, cum = new Array(N + 1).fill(0);
+            for (let i = 0; i < N; i++)cum[i + 1] = cum[i] + ps[i].weight;
+            const start = Math.random() / N; const ns = []; let j = 0;
+            for (let i = 0; i < N; i++) { const t = start + i / N; while (j < N - 1 && cum[j + 1] < t) j++; ns.push({ ...ps[j], weight: 1 / N }); }
+            return ns;
+        }
+        function inject(ps) {
+            const n = Math.floor(ps.length * 0.05);
+            const idx = [...Array(ps.length).keys()].sort((a, b) => ps[a].weight - ps[b].weight);
+            for (let k = 0; k < n; k++)ps[idx[k]] = randomParticle();
+        }
+
+        // d = robot-frame ODOM delta {f:forward, s:strafe, th}
+        function mclUpdate(d) {
+            const trans = Math.abs(d.f) + Math.abs(d.s);
+            // accumulate odom world displacement since the last accepted estimate
+            if (odomAccPrev) { accDX += odom.x - odomAccPrev.x; accDY += odom.y - odomAccPrev.y; }
+            odomAccPrev = { x: odom.x, y: odom.y };
+            for (const p of particles) {
+                const f = d.f + randn() * MOTION_SIGMA * (Math.abs(d.f) + 0.03);
+                // strafe slip comes from what actually causes it — driving fwd
+                // and turning — not free wander (tiny floor when stationary).
+                const s = d.s + randn() * (MOTION_SIGMA * STRAFE_MULT * Math.abs(d.s)
+                    + 0.08 * Math.abs(d.f) + 0.010 * Math.abs(d.th) + 0.02);
+                const t = d.th + randn() * MOTION_SIGMA * (Math.abs(d.th) + 0.3) + randn() * 0.4 * trans;
+                const pr = p.theta * D2R;
+                p.x += f * Math.sin(pr) + s * Math.cos(pr);
+                p.y += f * Math.cos(pr) - s * Math.sin(pr);
+                p.theta = wrapDeg(p.theta + t);
+                constrainPose(p);
+                p.weight = 1;
+            }
+            let anyAccepted = false;
+            for (let i = 0; i < sensorConfigs.length; i++) {
+                const cfg = sensorConfigs[i]; sensorStatus[i] = 'none';
+                if (!cfg.enabled) continue;
+                const { ox, oy, dx, dy } = sensorRay(truth, cfg);
+                const { dist, hitType } = rayCastDetailed(ox, oy, dx, dy);
+                if (dist >= MAX_RANGE * 0.97) { prevDist[i] = -1; continue; }
+                const meas = dist + randn() * 0.4;
+                if (hitType === 'obstacle') { sensorStatus[i] = hitType; prevDist[i] = meas; continue; }
+                if (prevDist[i] >= 0 && Math.abs(meas - prevDist[i]) > 20) { sensorStatus[i] = 'jump'; prevDist[i] = meas; continue; }
+                prevDist[i] = meas;
+                sensorStatus[i] = hitType; anyAccepted = true;
+                for (const p of particles) p.weight *= gaussian(meas - particleExpectedDist(p, cfg), DIST_SIGMA);
+            }
+            tagDetections = simulateDetections(fused);
+            for (const det of tagDetections) {
+                if (det.status !== 'accepted') continue;
+                anyAccepted = true;
+                for (const p of particles) {
+                    let best = 0;
+                    for (const c of det.cands) {
+                        const w = gaussian(wrapDeg(det.meas - expectedBearing(p, det.cam, c)), BEAR_SIGMA);
+                        if (w > best) best = w;
+                    }
+                    p.weight *= best;
+                }
+            }
+            imuBias += imuCfg.driftPerMin / 3600;
+            lastImu = wrapDeg(truth.theta + imuBias + randn() * imuCfg.noise);
+            for (const p of particles) p.weight *= gaussian(wrapDeg(p.theta - lastImu), imuCfg.sigma);
+            if (anyAccepted) {
+                const avg = particles.reduce((s, p) => s + p.weight, 0) / particles.length;
+                wFast += 0.4 * (avg - wFast); wSlow += 0.05 * (avg - wSlow);
+                if (wSlow > 1e-12 && wFast / wSlow < SLIP_RATIO && trans > SLIP_MIN_TRANS) {
+                    slipTimer = 45;
+                    const n = Math.floor(particles.length * RECOVERY_FRAC);
+                    for (let k = 0; k < n; k++) {
+                        const i = (Math.random() * particles.length) | 0;
+                        particles[i] = constrainPose({ x: fused.x + randn() * 10, y: fused.y + randn() * 10, theta: wrapDeg(lastImu + randn() * 4), weight: 1 / particles.length });
+                    }
+                    // intentional move — resync the kinematic gate to the fused pose
+                    prevMclEst = { x: fused.x, y: fused.y }; accDX = accDY = 0; mclJump = 0;
+                    wFast = wSlow;
+                }
+            }
+            if (slipTimer > 0) slipTimer--;
+            normalise(particles); particles = resample(particles); inject(particles);
+            let sx = 0, sy = 0, ss = 0, sc = 0;
+            for (const p of particles) {
+                sx += p.weight * p.x; sy += p.weight * p.y;
+                const r = p.theta * D2R; ss += p.weight * Math.sin(r); sc += p.weight * Math.cos(r);
+            }
+            let spread = 0;
+            for (const p of particles) { const dx = p.x - sx, dy = p.y - sy; spread += p.weight * (dx * dx + dy * dy); }
+            estimate = { x: sx, y: sy, theta: Math.atan2(ss, sc) * R2D, conf: 1 / (1 + 0.05 * Math.sqrt(spread)) };
+            constrainPose(estimate);
+            // KINEMATIC plausibility gate (direction-aware). The estimate's
+            // displacement since the last accepted one is split fwd/lateral and
+            // compared to the odom-commanded motion; lateral gets a tighter
+            // budget than forward. Stands down during a detected slip.
+            let plausible = true;
+            if (KIN_GATE && prevMclEst && slipTimer <= 0) {
+                const mdx = estimate.x - prevMclEst.x, mdy = estimate.y - prevMclEst.y;
+                const rdx = mdx - accDX, rdy = mdy - accDY, thR = estimate.theta * D2R;
+                const resF = rdx * Math.sin(thR) + rdy * Math.cos(thR);
+                const resS = rdx * Math.cos(thR) - rdy * Math.sin(thR);
+                const travel = Math.hypot(accDX, accDY);
+                plausible = Math.abs(resF) <= KIN_FWD_BASE + KIN_FWD_RATE * travel &&
+                    Math.abs(resS) <= KIN_STR_BASE + KIN_STR_RATE * travel &&
+                    Math.hypot(mdx, mdy) <= EST_JUMP + travel;
+            }
+            if (!plausible && mclJump < KIN_HOLD) {
+                mclValid = false; mclJump++;
+            } else { mclValid = true; mclJump = 0; prevMclEst = { x: estimate.x, y: estimate.y }; accDX = accDY = 0; }
+            if (mclValid && estimate.conf >= FUSE_MINCONF) {
+                // fusedIsMcl → k=1 snaps fused onto MCL; the freeze on invalid/
+                // blind cycles still dead-reckons on odometry.
+                const k = fusedIsMcl ? 1 : FUSE_ALPHA * estimate.conf;
+                corr.x += k * ((estimate.x - odom.x) - corr.x);
+                corr.y += k * ((estimate.y - odom.y) - corr.y);
+                corr.theta = wrapDeg(corr.theta + k * wrapDeg(wrapDeg(estimate.theta - odom.theta) - corr.theta));
+            }
+            fused = constrainPose({ x: odom.x + corr.x, y: odom.y + corr.y, theta: wrapDeg(odom.theta + corr.theta) });
+            // high-confidence encoder reset (mirrors C++ APPLY_TO_CHASSIS)
+            if (autoApply && mclValid && estimate.conf >= APPLY_MINCONF) {
+                if (--applyTimer <= 0) {
+                    odom = { x: fused.x, y: fused.y, theta: fused.theta };
+                    corr = { x: 0, y: 0, theta: 0 };
+                    applyTimer = APPLY_PERIOD; applyFlash = 20;
+                }
+            }
+            visEst = triangulate(tagDetections);
+            if (visEst) constrainPose(visEst);
+            if (visEst) {
+                if (prevVisEst && Math.hypot(visEst.x - prevVisEst.x, visEst.y - prevVisEst.y) > EST_JUMP && visJump < EST_JUMP_HOLD) {
+                    visValid = false; visJump++;
+                } else { visValid = true; visJump = 0; prevVisEst = { x: visEst.x, y: visEst.y }; }
+            } else visValid = true;
+        }
+
+        // ═════════ path: bezier curve with per-point heading + handles ═════════
+        // Each waypoint: { x, y, heading(°=tangent dir), handle(in=control len),
+        //                  reverse(drive this leg backwards), auto(heading auto) }
+        // Cubic segment i: A=path[i] B=path[i+1]
+        //   c1 = A + A.handle·(sinθ,cosθ)_A     c2 = B − B.handle·(sinθ,cosθ)_B
+        let path = [];
+        let pathRun = false, pathEdit = false, pathDrag = -1, pathDragKind = '';
+        let pathCfg = { maxSpd: 1.8, lookahead: 11, kPlin: 0.12, kPang: 0.08, kDang: 0.25, slew: 0.08, endTol: 2 };
+        let pathPrevV = 0, pathPrevErr = 0, pathLA = null, pathProg = 0;
+        let curveCache = null;
+        const CURVE_SAMP = 18; // samples per segment
+        function markDirty() { curveCache = null; }
+        function autoHeadings() {
+            for (let i = 0; i < path.length; i++) {
+                const p = path[i]; if (p.auto === false) continue;
+                const a = path[i - 1] || p, b = path[i + 1] || p;
+                p.heading = Math.atan2(b.x - a.x, b.y - a.y) * R2D;
+                const dn = Math.hypot((path[i + 1] || p).x - p.x, (path[i + 1] || p).y - p.y);
+                const dp = Math.hypot(p.x - (path[i - 1] || p).x, p.y - (path[i - 1] || p).y);
+                p.handle = Math.max(5, (dn + dp) / 2 * 0.4);
+            }
+        }
+        function controlOut(p) { const t = p.heading * D2R; return { x: p.x + p.handle * Math.sin(t), y: p.y + p.handle * Math.cos(t) }; }
+        function controlIn(p) { const t = p.heading * D2R; return { x: p.x - p.handle * Math.sin(t), y: p.y - p.handle * Math.cos(t) }; }
+        function bezSegs() {
+            const s = [];
+            for (let i = 0; i < path.length - 1; i++) {
+                const A = path[i], B = path[i + 1];
+                s.push({ A, B, seg: i, c1: controlOut(A), c2: controlIn(B) });
+            }
+            return s;
+        }
+        // Sample curve → {pts:[{x,y,seg}], cum:[arclen...], total}
+        function getCurve() {
+            if (curveCache) return curveCache;
+            if (path.length < 2) return curveCache = { pts: path.map(p => ({ x: p.x, y: p.y, seg: 0 })), cum: [0], total: 0 };
+            const pts = [];
+            for (const s of bezSegs()) {
+                for (let k = 0; k < CURVE_SAMP; k++) {
+                    const t = k / CURVE_SAMP, u = 1 - t;
+                    pts.push({ seg: s.seg,
+                        x: u * u * u * s.A.x + 3 * u * u * t * s.c1.x + 3 * u * t * t * s.c2.x + t * t * t * s.B.x,
+                        y: u * u * u * s.A.y + 3 * u * u * t * s.c1.y + 3 * u * t * t * s.c2.y + t * t * t * s.B.y });
+                }
+            }
+            const last = path[path.length - 1];
+            pts.push({ x: last.x, y: last.y, seg: path.length - 2 });
+            const cum = [0];
+            for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+            return curveCache = { pts, cum, total: cum[cum.length - 1] };
+        }
+        function pointAtArc(c, s) {
+            if (s <= 0) return { ...c.pts[0] };
+            if (s >= c.total) return { ...c.pts[c.pts.length - 1] };
+            let lo = 0, hi = c.cum.length - 1;
+            while (lo < hi) { const m = (lo + hi) >> 1; if (c.cum[m] < s) lo = m + 1; else hi = m; }
+            const i = Math.max(1, lo), a = c.pts[i - 1], b = c.pts[i];
+            const seg = (s - c.cum[i - 1]) / (c.cum[i] - c.cum[i - 1] || 1);
+            return { x: a.x + (b.x - a.x) * seg, y: a.y + (b.y - a.y) * seg, seg: b.seg };
+        }
+        function arcIndex(c, s) { let lo = 0, hi = c.cum.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (c.cum[m] < s) lo = m + 1; else hi = m; } return lo; }
+
+        // One follower frame → [vf, vt]. Drives on the FUSED belief.
+        function pathStep() {
+            const c = getCurve();
+            if (c.pts.length < 2) { stopPath(); return [0, 0]; }
+            // MONOTONIC PROGRESS — only search a window AHEAD of where we are.
+            // This is what stops the robot skipping when two legs pass close
+            // together, or circling back to an earlier part of the path.
+            const lo = arcIndex(c, pathProg);
+            const win = Math.max(10, Math.ceil(pathCfg.lookahead * 2));
+            let bestI = lo, bestD = 1e9;
+            for (let i = lo; i < Math.min(c.pts.length, lo + win); i++) {
+                const d = Math.hypot(c.pts[i].x - fused.x, c.pts[i].y - fused.y);
+                if (d < bestD) { bestD = d; bestI = i; }
+            }
+            pathProg = Math.max(pathProg, c.cum[bestI]); // never regress
+            const la = pointAtArc(c, pathProg + pathCfg.lookahead); pathLA = la;
+            const seg = c.pts[Math.min(bestI, c.pts.length - 1)].seg;
+            const rev = !!(path[seg] && path[seg].reverse);
+            const remain = c.total - pathProg;
+            const end = path[path.length - 1];
+            if (remain < 0.5 && Math.hypot(end.x - fused.x, end.y - fused.y) < pathCfg.endTol) { stopPath(); return [0, 0]; }
+            // aim at the lookahead point; reverse legs aim the BACK of the robot
+            let desired = Math.atan2(la.x - fused.x, la.y - fused.y) * R2D;
+            if (rev) desired = wrapDeg(desired + 180);
+            const hErr = wrapDeg(desired - fused.theta);
+            // linear: P on remaining distance, scaled by alignment, slew-limited
+            let v = Math.min(pathCfg.maxSpd, pathCfg.kPlin * (remain + pathCfg.lookahead * 0.5));
+            v *= Math.max(0, Math.cos(hErr * D2R));
+            v = Math.min(v, pathPrevV + pathCfg.slew); pathPrevV = v;
+            let w = pathCfg.kPang * hErr + pathCfg.kDang * (hErr - pathPrevErr); pathPrevErr = hErr;
+            w = clamp(w, -TURN, TURN);
+            return [rev ? -v : v, w];
+        }
+        function startPath() {
+            if (path.length < 2) return;
+            const s = path[0];
+            // TELEPORT to the start pose, then re-init localisation there (a
+            // clean run from a known start, like placing the robot on the line).
+            truth = { x: s.x, y: s.y, theta: s.heading };
+            odom = { x: s.x, y: s.y, theta: s.heading }; corr = { x: 0, y: 0, theta: 0 }; fused = { ...odom };
+            imuBias = 0; initParticles();
+            pathProg = 0; pathPrevV = 0; pathPrevErr = 0; pathLA = null;
+            pathRun = true; pathEdit = false; updatePathBtns();
+        }
+        function stopPath() { pathRun = false; pathLA = null; pathPrevV = 0; updatePathBtns(); }
+        function updatePathBtns() {
+            document.getElementById('p-run').textContent = pathRun ? '⏹ stop' : '▶ run';
+            document.getElementById('p-edit').textContent = pathEdit ? '✓ done' : '✎ edit';
+            document.getElementById('status').textContent =
+                pathRun ? 'running path — robot steers from its FUSED belief' :
+                pathEdit ? 'PATH EDIT: click=add · drag=move · cyan handle=heading · dbl-click=delete' :
+                'ready — WASD drive · QE strafe';
+        }
+
+        // ═════════ physics + odom drift ═════════
+        function tick() {
+            npcStep(); // opponents roam every frame
+            let vf = 0, vs = 0, vt = 0;
+            if (pathRun && path.length >= 2) {
+                [vf, vt] = pathStep(); // autonomous: differential (no strafe)
+            } else {
+                if (keys['w'] || keys['arrowup']) vf += SPEED;
+                if (keys['s'] || keys['arrowdown']) vf -= SPEED;
+                if (keys['q']) vs -= SPEED;
+                if (keys['e']) vs += SPEED;
+                if (keys['a'] || keys['arrowleft']) vt -= TURN;
+                if (keys['d'] || keys['arrowright']) vt += TURN;
+            }
+            // ── aligned-HOLD: pose locked to the goal, backward motion ignored ──
+            if (alignActive) {
+                const seatD = alignerGoalDist();
+                // turning pivots the robot around the seated post; forward drive
+                // (or losing the seat) releases the lock.
+                truth.theta = wrapDeg(truth.theta + vt);
+                const fx = Math.sin(truth.theta * D2R), fy = Math.cos(truth.theta * D2R);
+                // re-pin truth onto the seated geometry (post centred behind at
+                // the seat depth) — so pushing backward just holds, never grinds in.
+                truth.x = clamp(alignGoalPos[0] + seatD * fx, FM, FX);
+                truth.y = clamp(alignGoalPos[1] + seatD * fy, FM, FX);
+                imuBias += imuCfg.driftPerMin / 3600;
+                lastImu = wrapDeg(truth.theta + imuBias + randn() * imuCfg.noise);
+                alignedHold();
+                contactNow = true;
+                if (vf > 0.001) alignActive = false; // drove forward → release
+                draw();
+                requestAnimationFrame(tick);
+                return;
+            }
+            const moved = vf || vs || vt;
+            if (moved) {
+                const tt = truth.theta * D2R, R = robotR();
+                let nx = truth.x + vf * Math.sin(tt) + vs * Math.cos(tt);
+                let ny = truth.y + vf * Math.cos(tt) - vs * Math.sin(tt);
+                contactNow = false;
+                if (nx < FM + R || nx > FX - R) { nx = clamp(nx, FM + R, FX - R); contactNow = true; }
+                if (ny < FM + R || ny > FX - R) { ny = clamp(ny, FM + R, FX - R); contactNow = true; }
+                for (const [gx, gy] of GOALS) {
+                    const dx = nx - gx, dy = ny - gy, d = Math.hypot(dx, dy), minD = GOAL_COL_R + R;
+                    if (d < minD) { const ux = d < 1e-6 ? 1 : dx / d, uy = d < 1e-6 ? 0 : dy / d; nx = gx + ux * minD; ny = gy + uy * minD; contactNow = true; }
+                }
+                for (const o of obsAll()) {
+                    const dx = nx - o.x, dy = ny - o.y, d = Math.hypot(dx, dy), minD = o.r + R;
+                    if (d < minD) { const ux = d < 1e-6 ? 1 : dx / d, uy = d < 1e-6 ? 0 : dy / d; nx = o.x + ux * minD; ny = o.y + uy * minD; contactNow = true; }
+                }
+                // rear goal aligner (mechanical V-guide centring)
+                alignGoal = null;
+                if (aligner.enabled && vf < 0) {
+                    const fx = Math.sin(tt), fy = Math.cos(tt), seatD = alignerGoalDist();
+                    for (const [gx, gy] of GOALS) {
+                        const rx = gx - nx, ry = gy - ny;
+                        const behind = -(rx * fx + ry * fy), lat = rx * fy - ry * fx;
+                        if (behind > 0 && behind < seatD + 8 && Math.abs(lat) < aligner.capture) {
+                            const newLat = lat * 0.6, newBehind = Math.max(behind, seatD);
+                            nx = gx + newBehind * fx - newLat * fy;
+                            ny = gy + newBehind * fy + newLat * fx;
+                            if (behind <= seatD + 0.1 && Math.abs(newLat) < 0.8) { alignGoal = [gx, gy]; contactNow = true; }
+                            break;
+                        }
+                    }
+                }
+                truth.x = nx; truth.y = ny;
+                truth.theta = wrapDeg(truth.theta + vt);
+                const df = vf * (1 + drift.fwd / 100) + randn() * drift.noise;
+                const ds = vs * (1 + drift.strafe / 100) + randn() * drift.noise * 1.5;
+                const dth = vt + drift.head * (Math.abs(vf) + Math.abs(vs)) + randn() * drift.noise * 2;
+                const ot = odom.theta * D2R;
+                odom.x += df * Math.sin(ot) + ds * Math.cos(ot);
+                odom.y += df * Math.cos(ot) - ds * Math.sin(ot);
+                odom.theta = wrapDeg(odom.theta + dth);
+                mclUpdate({ f: df, s: ds, th: dth });
+                alignHold = alignGoal ? alignHold + 1 : 0;
+                if (aligner.auto && alignHold >= 8 && !alignActive) { alignActive = true; alignGoalPos = alignGoal; }
+            }
+            draw();
+            requestAnimationFrame(tick);
+        }
+
+        // ═════════ rear goal-aligner: aligned-HOLD ═════════
+        // One frame of the lock: the post is centred behind the robot at the
+        // seat depth, so pose = goal centre + seatDist·forward(IMU heading). ALL
+        // estimates (odom, fused, MCL cloud) are pinned there at 100% confidence.
+        function alignedHold() {
+            const D = alignerGoalDist(), tR = lastImu * D2R;
+            const x = alignGoalPos[0] + D * Math.sin(tR), y = alignGoalPos[1] + D * Math.cos(tR);
+            odom = { x, y, theta: lastImu }; corr = { x: 0, y: 0, theta: 0 }; fused = { x, y, theta: lastImu };
+            estimate = { x, y, theta: lastImu, conf: 1 };
+            for (const p of particles) { p.x = x + randn() * 0.5; p.y = y + randn() * 0.5; p.theta = wrapDeg(lastImu + randn() * 0.8); p.weight = 1 / particles.length; }
+            wFast = wSlow = 1; prevDist = sensorConfigs.map(() => -1);
+            prevMclEst = { x, y }; mclJump = 0; mclValid = true;
+            accDX = accDY = 0; odomAccPrev = { x, y };
+            tagDetections = simulateDetections(fused); // display only
+            alignTimer = 3;
+        }
+        // Manual trigger: find the goal seated behind the FUSED belief and lock.
+        function doAlignReset() {
+            const D = alignerGoalDist(), tR = lastImu * D2R;
+            const px = fused.x - D * Math.sin(tR), py = fused.y - D * Math.cos(tR);
+            let best = null, bestD = 1e9;
+            for (const [gx, gy] of GOALS) { const d = Math.hypot(gx - px, gy - py); if (d < bestD) { bestD = d; best = [gx, gy]; } }
+            if (!best || bestD > 15) return false;
+            alignGoalPos = best; alignActive = true; alignedHold();
+            return true;
+        }
+
+        // ═════════ drawing ═════════
+        function drawRobot(pose, color, label, dashed) {
+            const [cx, cy] = toC(pose.x, pose.y);
+            ctx.save(); ctx.translate(cx, cy); ctx.rotate(pose.theta * D2R);
+            const rw = ROBOT_W * SC / 2, rh = ROBOT_H * SC / 2;
+            if (dashed) ctx.setLineDash([4, 3]);
+            ctx.fillStyle = color + '22'; ctx.fillRect(-rw, -rh, rw * 2, rh * 2);
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(-rw, -rh, rw * 2, rh * 2);
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(0, -rh * 0.85); ctx.lineTo(rw * 0.45, -rh * 0.2); ctx.lineTo(-rw * 0.45, -rh * 0.2);
+            ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+            ctx.restore();
+            ctx.fillStyle = color; ctx.font = 'bold 10px system-ui'; ctx.fillText(label, cx + 9, cy - 12);
+        }
+        function drawBeam(x0, y0, x1, y1, stroke) {
+            ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = stroke; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = stroke; ctx.beginPath(); ctx.arc(x1, y1, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+        function drawPath() {
+            if (!path.length) return;
+            ctx.save();
+            // reverse legs drawn red-ish, forward legs white
+            if (path.length >= 2) {
+                for (const s of bezSegs()) {
+                    const [ax, ay] = toC(s.A.x, s.A.y), [c1x, c1y] = toC(s.c1.x, s.c1.y),
+                        [c2x, c2y] = toC(s.c2.x, s.c2.y), [bx, by] = toC(s.B.x, s.B.y);
+                    ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
+                    ctx.strokeStyle = s.A.reverse ? 'rgba(255,120,120,0.8)' : 'rgba(255,255,255,0.6)';
+                    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.bezierCurveTo(c1x, c1y, c2x, c2y, bx, by); ctx.stroke();
+                }
+            }
+            ctx.setLineDash([]);
+            // anchors + heading arrows (+ control handles in edit mode)
+            path.forEach((p, i) => {
+                const [cx, cy] = toC(p.x, p.y);
+                if (pathEdit) {
+                    const o = controlOut(p), inp = controlIn(p);
+                    const [ox, oy] = toC(o.x, o.y), [ix, iy] = toC(inp.x, inp.y);
+                    ctx.strokeStyle = 'rgba(65,214,214,0.6)'; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.moveTo(ix, iy); ctx.lineTo(ox, oy); ctx.stroke();
+                    ctx.fillStyle = '#41d6d6';
+                    ctx.beginPath(); ctx.arc(ox, oy, 4, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(ix, iy, 3, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.beginPath(); ctx.arc(cx, cy, pathEdit ? 6 : 4, 0, Math.PI * 2);
+                ctx.fillStyle = i === 0 ? '#52c46a' : i === path.length - 1 ? '#ff9d3b' : '#e8eaf0';
+                ctx.fill();
+                if (pathEdit) { ctx.fillStyle = '#0d0f14'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText(i + 1, cx, cy + 3); ctx.textAlign = 'left'; }
+            });
+            if (pathLA) { const [lx, ly] = toC(pathLA.x, pathLA.y); ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.strokeStyle = '#41d6d6'; ctx.lineWidth = 2; ctx.stroke(); }
+            ctx.restore();
+        }
+        function draw() {
+            ctx.clearRect(0, 0, SZ, SZ);
+            const [fx0, fy0] = toC(-72, -72), [fx1, fy1] = toC(72, 72);
+            if (fieldImgOk) {
+                ctx.drawImage(fieldImg, fx0, fy1, fx1 - fx0, fy0 - fy1);
+                ctx.fillStyle = 'rgba(10,12,16,0.45)';
+                ctx.fillRect(fx0, fy1, fx1 - fx0, fy0 - fy1);
+            } else {
+                ctx.fillStyle = '#23262e'; ctx.fillRect(fx0, fy1, fx1 - fx0, fy0 - fy1);
+                ctx.strokeStyle = 'rgba(128,128,128,0.15)'; ctx.lineWidth = .5;
+                for (let g = -48; g <= 48; g += 24) {
+                    const [gx] = toC(g, 0), [, gy] = toC(0, g);
+                    ctx.beginPath(); ctx.moveTo(gx, fy1); ctx.lineTo(gx, fy0); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(fx0, gy); ctx.lineTo(fx1, gy); ctx.stroke();
+                }
+                ctx.strokeStyle = 'rgba(220,220,230,0.25)'; ctx.lineWidth = 2;
+                const dia = 23.55;
+                const seg = (x1, y1, x2, y2) => { const [a, b] = toC(x1, y1), [c, d] = toC(x2, y2); ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); };
+                seg(-66, 66, -dia / 2, dia * 1.5); seg(66, 66, dia / 2, dia * 1.5);
+                seg(-66, -66, -dia / 2, -dia * 1.5); seg(66, -66, dia / 2, -dia * 1.5);
+                seg(0, dia, dia, 0); seg(dia, 0, 0, -dia);
+                seg(0, -dia, -dia, 0); seg(-dia, 0, 0, dia);
+                ctx.fillStyle = 'rgba(220,200,60,0.35)';
+                const [p0x, p0y] = toC(-72, 21), [p1x, p1y] = toC(-69.5, -21);
+                ctx.fillRect(p0x, p0y, p1x - p0x, p1y - p0y);
+                const [q0x, q0y] = toC(69.5, 21), [q1x, q1y] = toC(72, -21);
+                ctx.fillRect(q0x, q0y, q1x - q0x, q1y - q0y);
+            }
+            ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.strokeRect(fx0, fy1, fx1 - fx0, fy0 - fy1);
+            for (const [gx, gy] of GOALS) {
+                const [cx, cy] = toC(gx, gy);
+                ctx.save(); ctx.setLineDash([3, 3]);
+                ctx.beginPath(); ctx.arc(cx, cy, GOAL_SENSE_R * SC, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(160,160,170,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+                ctx.restore();
+                ctx.beginPath(); ctx.arc(cx, cy, GOAL_COL_R * SC, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(150,150,160,0.55)'; ctx.fill();
+                ctx.strokeStyle = 'rgba(190,190,200,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+            }
+            for (const o of obstacles) {
+                const [cx, cy] = toC(o.x, o.y); const r = o.r * SC;
+                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(210,55,55,0.3)'; ctx.fill();
+                ctx.strokeStyle = 'rgba(220,60,60,0.85)'; ctx.lineWidth = 1.5; ctx.stroke();
+            }
+            // opponent robots
+            for (const n of npcs) {
+                if (!n.enabled) continue;
+                const [cx, cy] = toC(n.x, n.y), r = n.r * SC;
+                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(200,80,210,0.22)'; ctx.fill();
+                ctx.strokeStyle = 'rgba(210,90,220,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+                const tr = n.theta * D2R;
+                ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(tr) * r, cy - Math.cos(tr) * r); ctx.stroke();
+            }
+            for (const tag of TAGS) {
+                if (!tag.enabled) continue;
+                const [cx, cy] = toC(tag.x, tag.y);
+                const r = (GOAL_COL_R + 1.2) * SC;
+                ctx.fillStyle = '#ffd24a';
+                for (const [ox, oy] of [[0, -r], [r, 0], [0, r], [-r, 0]]) ctx.fillRect(cx + ox - 2.5, cy + oy - 2.5, 5, 5);
+                ctx.font = 'bold 10px system-ui'; ctx.fillStyle = '#ffd24a'; ctx.fillText(tag.id, cx + r + 3, cy - r + 2);
+            }
+            drawPath();
+            for (const p of particles) {
+                const [cx, cy] = toC(p.x, p.y);
+                const a = Math.min(0.85, p.weight * particles.length * 0.5 + 0.06);
+                ctx.fillStyle = `rgba(110,170,255,${a.toFixed(2)})`;
+                ctx.beginPath(); ctx.arc(cx, cy, 1.8, 0, Math.PI * 2); ctx.fill();
+            }
+            for (let i = 0; i < sensorConfigs.length; i++) {
+                const cfg = sensorConfigs[i]; if (!cfg.enabled) continue;
+                const { ox, oy, dx, dy } = sensorRay(truth, cfg);
+                const { dist } = rayCastDetailed(ox, oy, dx, dy);
+                if (dist >= MAX_RANGE * 0.97) continue;
+                const [x0, y0] = toC(ox, oy), [x1, y1] = toC(ox + dx * dist, oy + dy * dist);
+                drawBeam(x0, y0, x1, y1, (sensorStatus[i] === 'wall' || sensorStatus[i] === 'goal') ? 'rgba(255,210,74,.8)' : 'rgba(255,80,80,.85)');
+            }
+            for (const det of tagDetections) {
+                const [x0, y0] = toC(det.camX, det.camY), [x1, y1] = toC(det.tag.x, det.tag.y);
+                drawBeam(x0, y0, x1, y1, det.status === 'accepted' ? 'rgba(65,214,214,.7)' : 'rgba(255,80,80,.7)');
+            }
+            const seatedGoal = alignActive ? alignGoalPos : alignGoal;
+            if (seatedGoal) {
+                const [gx, gy] = toC(seatedGoal[0], seatedGoal[1]);
+                ctx.beginPath(); ctx.arc(gx, gy, (GOAL_COL_R + 1.2) * SC, 0, Math.PI * 2);
+                ctx.strokeStyle = '#52c46a'; ctx.lineWidth = 2.5; ctx.stroke();
+            }
+            drawRobot(truth, '#e8eaf0', 'truth');
+            if (aligner.enabled) {
+                const [acx, acy] = toC(truth.x, truth.y);
+                ctx.save(); ctx.translate(acx, acy); ctx.rotate(truth.theta * D2R);
+                const rh = ROBOT_H * SC / 2, w = aligner.capture * SC / 2, apex = aligner.seat * SC;
+                ctx.strokeStyle = seatedGoal ? '#52c46a' : '#8a8f9c'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(-w, rh); ctx.lineTo(0, apex); ctx.lineTo(w, rh); ctx.stroke();
+                ctx.restore();
+            }
+            drawRobot(odom, '#4a82ff', 'odom', true);
+            drawRobot(estimate, '#52c46a', mclValid ? 'mcl' : 'mcl ✕', true);
+            if (visEst && visValid) drawRobot(visEst, '#d65cd6', 'vis', true);
+            drawRobot(fused, '#ff9d3b', 'FUSED');
+
+            // readouts
+            const fmt = p => `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.theta.toFixed(0)}°`;
+            const err = p => p ? Math.hypot(p.x - truth.x, p.y - truth.y).toFixed(1) + ' in' : '—';
+            document.getElementById('p-truth').textContent = fmt(truth);
+            document.getElementById('p-odom').textContent = fmt(odom);
+            document.getElementById('e-odom').textContent = err(odom);
+            document.getElementById('p-mcl').textContent = fmt(estimate);
+            document.getElementById('e-mcl').textContent = mclValid ? err(estimate) : 'REJECTED (implausible)';
+            document.getElementById('p-vis').textContent = visEst ? fmt(visEst) : '— (needs ≥2 tags)';
+            document.getElementById('e-vis').textContent = visEst && !visValid ? 'INVALID (jump)' : err(visEst);
+            document.getElementById('p-fused').textContent = fmt(fused);
+            document.getElementById('e-fused').textContent = err(fused);
+            const confEl = document.getElementById('conf');
+            confEl.textContent = (estimate.conf * 100).toFixed(0) + '%';
+            confEl.className = 'badge ' + (estimate.conf > 0.55 ? 'ok' : 'warn');
+            const slipEl = document.getElementById('slip');
+            if (slipTimer > 0) { slipEl.textContent = 'SLIP — resetting'; slipEl.className = 'badge warn'; }
+            else { slipEl.textContent = 'ok'; slipEl.className = 'badge ok'; }
+            const conEl = document.getElementById('contact');
+            if (contactNow) { conEl.textContent = 'COLLIDING'; conEl.className = 'badge warn'; }
+            else { conEl.textContent = 'clear'; conEl.className = 'badge ok'; }
+            const alEl = document.getElementById('align');
+            if (alignActive) { alEl.textContent = 'ALIGNED — pose locked (100%)'; alEl.className = 'badge ok'; }
+            else if (alignTimer > 0) { alignTimer--; alEl.textContent = 'ALIGNED — pose reset'; alEl.className = 'badge ok'; }
+            else if (alignGoal) { alEl.textContent = 'seated on goal'; alEl.className = 'badge warn'; }
+            else { alEl.textContent = 'idle'; alEl.className = 'badge ok'; }
+            const apEl = document.getElementById('apply');
+            if (applyFlash > 0) { applyFlash--; apEl.textContent = 'setPose ✓'; apEl.className = 'badge ok'; }
+            else { apEl.textContent = autoApply ? 'armed' : 'off'; apEl.className = 'badge ' + (autoApply ? 'ok' : 'warn'); }
+        }
+
+        // ═════════ input ═════════
+        document.addEventListener('keydown', e => {
+            const k = e.key.toLowerCase();
+            if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { e.preventDefault(); keys[k] = true; }
+        });
+        document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+        function evWorld(e) {
+            const r = canvas.getBoundingClientRect();
+            return fromC((e.clientX - r.left) * (SZ / r.width), (e.clientY - r.top) * (SZ / r.height));
+        }
+        canvas.addEventListener('click', e => {
+            canvas.focus();
+            if (pathEdit) return; // path editing has its own handlers
+            const [wx, wy] = evWorld(e);
+            const i = obstacles.findIndex(o => Math.hypot(o.x - wx, o.y - wy) < o.r * 1.8);
+            if (i >= 0) obstacles.splice(i, 1);
+            else if (!GOALS.some(([gx, gy]) => Math.hypot(gx - wx, gy - wy) < GOAL_SENSE_R * 1.1))
+                obstacles.push({ x: wx, y: wy, r: 4 });
+        });
+        // path editing: handles first, then anchors, then add
+        canvas.addEventListener('mousedown', e => {
+            if (!pathEdit) return;
+            const [wx, wy] = evWorld(e);
+            for (let i = 0; i < path.length; i++) {
+                const o = controlOut(path[i]), inp = controlIn(path[i]);
+                if (Math.hypot(o.x - wx, o.y - wy) < 3) { pathDrag = i; pathDragKind = 'out'; return; }
+                if (Math.hypot(inp.x - wx, inp.y - wy) < 3) { pathDrag = i; pathDragKind = 'in'; return; }
+            }
+            const ai = path.findIndex(p => Math.hypot(p.x - wx, p.y - wy) < 3);
+            if (ai >= 0) { pathDrag = ai; pathDragKind = 'anchor'; return; }
+            path.push({ x: wx, y: wy, heading: 0, handle: 8, reverse: false, auto: true });
+            autoHeadings(); markDirty(); pathDrag = path.length - 1; pathDragKind = 'anchor'; buildWpUI();
+        });
+        canvas.addEventListener('mousemove', e => {
+            if (!pathEdit || pathDrag < 0) return;
+            const [wx, wy] = evWorld(e); const p = path[pathDrag];
+            if (pathDragKind === 'anchor') { p.x = clamp(wx, FM, FX); p.y = clamp(wy, FM, FX); autoHeadings(); }
+            else {
+                // dragging a control handle sets heading (tangent) + handle length
+                let dx = wx - p.x, dy = wy - p.y;
+                if (pathDragKind === 'in') { dx = -dx; dy = -dy; }
+                p.heading = Math.atan2(dx, dy) * R2D; p.handle = Math.max(3, Math.hypot(dx, dy)); p.auto = false;
+            }
+            markDirty();
+        });
+        canvas.addEventListener('mouseup', () => { if (pathDrag >= 0) buildWpUI(); pathDrag = -1; });
+        canvas.addEventListener('dblclick', e => {
+            if (!pathEdit) return;
+            const [wx, wy] = evWorld(e);
+            const i = path.findIndex(p => Math.hypot(p.x - wx, p.y - wy) < 3);
+            if (i >= 0) { path.splice(i, 1); autoHeadings(); markDirty(); buildWpUI(); }
+        });
+        canvas.addEventListener('focus', updatePathBtns);
+
+        // ═════════ slider bindings ═════════
+        function bind(id, fn, fmt) { const el = document.getElementById(id); el.addEventListener('input', () => { const v = +el.value; fn(v); document.getElementById(id + '-v').textContent = fmt ? fmt(v) : v; }); }
+        bind('m-np', v => { NPART = v; initParticles(); });
+        bind('m-ds', v => DIST_SIGMA = v, v => v.toFixed(1));
+        bind('m-gs', v => GOAL_SENSE_R = v, v => v.toFixed(1));
+        bind('m-ms', v => MOTION_SIGMA = v, v => v.toFixed(1));
+        bind('m-ss', v => STRAFE_MULT = v, v => v.toFixed(2));
+        bind('f-al', v => FUSE_ALPHA = v, v => v.toFixed(2));
+        bind('f-mc', v => FUSE_MINCONF = v, v => v.toFixed(2));
+        bind('v-bs', v => BEAR_SIGMA = v, v => v.toFixed(1));
+        bind('v-bg', v => BEAR_GATE = v);
+        bind('v-bn', v => BEAR_NOISE = v, v => v.toFixed(2));
+        bind('i-dr', v => imuCfg.driftPerMin = v, v => v.toFixed(1));
+        bind('i-no', v => imuCfg.noise = v, v => v.toFixed(1));
+        bind('i-sg', v => imuCfg.sigma = v, v => v.toFixed(1));
+        bind('d-fwd', v => drift.fwd = v, v => v.toFixed(1));
+        bind('d-str', v => drift.strafe = v, v => v.toFixed(1));
+        bind('d-hed', v => drift.head = v, v => v.toFixed(2));
+        bind('d-noi', v => drift.noise = v, v => v.toFixed(2));
+        bind('spd', v => SPEED = v, v => v.toFixed(1));
+        bind('ap-mc', v => APPLY_MINCONF = v, v => v.toFixed(2));
+        document.getElementById('ap-on').addEventListener('change', e => autoApply = e.target.checked);
+        document.getElementById('f-im').addEventListener('change', e => fusedIsMcl = e.target.checked);
+        document.getElementById('reset-btn').addEventListener('click', initParticles);
+        document.getElementById('sync-btn').addEventListener('click', () => { odom = { ...fused }; corr = { x: 0, y: 0, theta: 0 }; });
+        // aligner
+        bind('al-st', v => aligner.seat = v, v => v.toFixed(1));
+        bind('al-cw', v => aligner.capture = v, v => v.toFixed(1));
+        document.getElementById('al-on').addEventListener('change', e => { aligner.enabled = e.target.checked; if (!e.target.checked) { alignGoal = null; alignHold = 0; } });
+        document.getElementById('al-auto').addEventListener('change', e => aligner.auto = e.target.checked);
+        document.getElementById('align-btn').addEventListener('click', doAlignReset);
+        // path follower
+        bind('p-sp', v => pathCfg.maxSpd = v, v => v.toFixed(1));
+        bind('p-la', v => pathCfg.lookahead = v);
+        bind('p-kl', v => pathCfg.kPlin = v, v => v.toFixed(2));
+        bind('p-ka', v => pathCfg.kPang = v, v => v.toFixed(2));
+        bind('p-kd', v => pathCfg.kDang = v, v => v.toFixed(2));
+        bind('p-sl', v => pathCfg.slew = v, v => v.toFixed(2));
+        document.getElementById('p-edit').addEventListener('click', () => { pathEdit = !pathEdit; if (pathEdit) stopPath(); updatePathBtns(); buildWpUI(); });
+        document.getElementById('p-run').addEventListener('click', () => { pathRun ? stopPath() : startPath(); });
+        document.getElementById('p-clear').addEventListener('click', () => { stopPath(); path = []; markDirty(); buildWpUI(); });
+        document.getElementById('npc-add').addEventListener('click', addNpc);
+
+        // ═════════ config tables ═════════
+        function numCell(val, step, onchange) {
+            const inp = document.createElement('input');
+            inp.type = 'number'; inp.value = val; inp.step = step; inp.className = 'num';
+            inp.addEventListener('change', () => onchange(+inp.value || 0));
+            return inp;
+        }
+        function chkCell(val, onchange) {
+            const inp = document.createElement('input');
+            inp.type = 'checkbox'; inp.checked = val;
+            inp.addEventListener('change', () => onchange(inp.checked));
+            return inp;
+        }
+        function btnCell(label, onclick) {
+            const b = document.createElement('button');
+            b.textContent = label; b.style.width = 'auto'; b.style.margin = '0'; b.style.padding = '1px 7px';
+            b.addEventListener('click', onclick); return b;
+        }
+        function buildTable(host, headers, rows) {
+            const t = document.createElement('table'); t.className = 'cfg';
+            const hr = document.createElement('tr');
+            for (const h of headers) { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); }
+            t.appendChild(hr);
+            for (const cells of rows) {
+                const tr = document.createElement('tr');
+                for (const c of cells) {
+                    const td = document.createElement('td');
+                    if (c instanceof HTMLElement) td.appendChild(c); else td.textContent = c;
+                    tr.appendChild(td);
+                }
+                t.appendChild(tr);
+            }
+            host.innerHTML = ''; host.appendChild(t);
+        }
+        const r1 = v => Math.round(v * 10) / 10;
+        function buildSensorUI() {
+            buildTable(document.getElementById('sensor-cfg'), ['on', 'sensor', 'angle°', 'x off', 'y off'],
+                sensorConfigs.map(c => [chkCell(c.enabled, v => c.enabled = v), c.label,
+                    numCell(c.angle_deg, 15, v => c.angle_deg = v), numCell(c.x_offset, 1, v => c.x_offset = v), numCell(c.y_offset, 1, v => c.y_offset = v)]));
+        }
+        function buildCamUI() {
+            buildTable(document.getElementById('cam-cfg'), ['on', 'cam', 'mount°', 'fov°', 'range', 'x', 'y'],
+                cameras.map(c => [chkCell(c.enabled, v => c.enabled = v), c.label,
+                    numCell(c.mount, 15, v => c.mount = v), numCell(c.fov, 5, v => c.fov = v), numCell(c.range, 6, v => c.range = v), numCell(c.x, 1, v => c.x = v), numCell(c.y, 1, v => c.y = v)]));
+        }
+        function buildTagUI() {
+            buildTable(document.getElementById('tag-cfg'), ['on', 'id', 'x', 'y'],
+                TAGS.map(t => [chkCell(t.enabled, v => t.enabled = v), t.id, numCell(t.x, 6, v => t.x = v), numCell(t.y, 6, v => t.y = v)]));
+        }
+        function buildNpcUI() {
+            buildTable(document.getElementById('npc-cfg'), ['on', 'x', 'y', 'θ', 'spd', 'r', ''],
+                npcs.map((n, i) => [
+                    chkCell(n.enabled, v => n.enabled = v),
+                    numCell(r1(n.x), 1, v => n.x = v), numCell(r1(n.y), 1, v => n.y = v),
+                    numCell(r1(n.theta), 15, v => n.theta = v), numCell(n.speed, 0.1, v => n.speed = v),
+                    numCell(n.r, 1, v => n.r = v),
+                    btnCell('×', () => { npcs.splice(i, 1); buildNpcUI(); })
+                ]));
+        }
+        function buildWpUI() {
+            const host = document.getElementById('wp-cfg');
+            if (!pathEdit || !path.length) { host.innerHTML = ''; return; }
+            buildTable(host, ['#', 'x', 'y', 'head°', 'curve', 'rev', ''],
+                path.map((p, i) => [
+                    String(i + 1),
+                    numCell(r1(p.x), 1, v => { p.x = v; autoHeadings(); markDirty(); }),
+                    numCell(r1(p.y), 1, v => { p.y = v; autoHeadings(); markDirty(); }),
+                    numCell(r1(p.heading), 5, v => { p.heading = v; p.auto = false; markDirty(); }),
+                    numCell(r1(p.handle), 1, v => { p.handle = v; p.auto = false; markDirty(); }),
+                    chkCell(p.reverse, v => { p.reverse = v; markDirty(); }),
+                    btnCell('×', () => { path.splice(i, 1); autoHeadings(); markDirty(); buildWpUI(); })
+                ]));
+        }
+
+        // ═════════ field sizing: square, matched to the status column height ═════════
+        function fitField() {
+            const h = document.getElementById('side').offsetHeight;
+            const s = Math.max(420, h);
+            canvas.style.width = s + 'px'; canvas.style.height = s + 'px';
+        }
+        window.addEventListener('resize', fitField);
+
+        buildSensorUI(); buildCamUI(); buildTagUI(); buildNpcUI(); buildWpUI();
+        initParticles();
+        fitField(); requestAnimationFrame(() => fitField());
+        requestAnimationFrame(tick);
+    </script>
+</body>
+
+</html>
